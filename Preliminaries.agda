@@ -84,7 +84,8 @@ inspect f x = [ refl ]
 
 -- products
 
-infixr 4 _,_ 
+infixr 4 _,_
+infixr 2 _*_
 
 record Sigma {a b}(A : Set a)(B : A -> Set b) : Set (LMax a b) where
   constructor _,_
