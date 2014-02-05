@@ -125,6 +125,12 @@ data List {l}(A : Set l) : Set l where
 
 infixl 4 _::_
 
+-- foldr
+
+foldr : forall {l}{A B : Set l} -> (A -> B -> B) -> B -> List A -> B
+foldr f v [] = v
+foldr f v (x :: xs) = f x (foldr f v xs)
+
 -- List membership
 
 infixl 4 _<-_
