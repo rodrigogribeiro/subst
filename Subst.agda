@@ -29,18 +29,9 @@ Con k C = k <- C
 -- type definition
 
 data Tau : VarCtx -> ConCtx -> Kind -> Set where
-  var : forall {V C k} -> (x : Var k V) -> Tau V C k
-  con : forall {V C k} -> (x : Con k C) -> Tau V C k
+  var : forall {V C k} -> (v : Var k V) -> Tau V C k
+  con : forall {V C k} -> (c : Con k C) -> Tau V C k
   app : forall {V C k k'} -> Tau V C (k => k') -> Tau V C k -> Tau V C k'
-
--- quantified types
-
-data Rho : VarCtx -> ConCtx -> Kind -> Set where
-  Forall  : forall {V C k k'} -> (t : Rho (k' :: V) C k) -> Rho V C k
-  SimplyTau : forall {V C k} -> Tau V C k -> Rho V C k
-
-SigmaType : ConCtx -> Set
-SigmaType C = Rho [] C Star
 
 -- removing a variable from a context
 
@@ -48,45 +39,6 @@ _-_ : forall {k} -> (V : VarCtx) -> (x : Var k V) -> VarCtx
 [] - () 
 (x :: V) - here = V
 (x :: V) - there i = x :: (V - i)
-
---_-=_ : VarCtx -> VarCtx -> VarCtx
---vs -= [] = vs
---vs -= (v :: vs') = (vs - v) -= vs'
-
--- defining a substitution
-
-Map : VarCtx -> ConCtx -> Kind -> Set
-Map V C k = Sigma (Var k V) (\x -> Tau (V - x) C k)
-
-data VarSet : Set where
-  <>  : VarSet
-  _,_ : forall {k V} -> Var k V -> VarSet -> VarSet
-
-Range : Set
-Range = VarSet
-
-Dom : Set
-Dom = VarSet
-
-toVarCtx : VarSet -> VarCtx
-toVarCtx <> = []
-toVarCtx (v , vs) = ky v :: toVarCtx vs
-                    where
-                      ky : forall {k V} -> Var k V -> Kind
-                      ky {k} _ = k
-
-_++_ : VarSet -> VarSet -> VarSet
-<> ++ vs' = vs'
-(v , vs) ++ vs' = v , (vs ++ vs')
-
-vars : forall {V C k} -> Tau V C k -> VarSet
-vars (var v) = v , <>
-vars (con c) = <>
-vars (app l r) = vars l ++ vars r
-
-data Subst (V : VarCtx) (C : ConCtx) : Dom -> Range -> Set where
-  <>  : Subst V C <> <>
-  _->>_::_ : forall {k D R} -> (x : Var k V) -> (t : Tau (V - x) C k) -> Subst V C D R -> Subst V C (x , D) (vars t ++ R)
 
 -- weakening
 
@@ -130,10 +82,6 @@ substTau (var v) x u = substVar v x u
 substTau (con c) x u = con c
 substTau (app l r) x u = app (substTau l x u) (substTau r x u) 
 
-
---apply : forall {V C D R k} -> Subst V C D R -> Tau V C k -> Tau (V - (toVarCtx D)) k
---apply s t = ?
-
 -- idempotence stuff
 
 weakInj : forall {k k' : Kind}{C : VarCtx}(p : Var k C)(v v' : Var k' (C - p)) -> weak p v == weak p v' -> v == v'
@@ -166,11 +114,69 @@ substTauIdem (var .(weak x v)) x u | diff .x v = substWeakVar x v u
 substTauIdem (con c) x u = refl
 substTauIdem (app l r) x u = cong2 app (substTauIdem l x u) (substTauIdem r x u) 
 
+-- substitutions: 
+
+data Subst (C : ConCtx) : VarCtx -> VarCtx -> Set where
+  <>  : forall {V : VarCtx} -> Subst C V []
+  _,,_ : forall {V V' : VarCtx}{k : Kind} -> Tau V C k -> Subst C V V' -> Subst C V (k :: V')
+
+-- application
+
+substVar1 : forall {V V' : VarCtx}{C : ConCtx}{k : Kind} -> Subst C V V' -> Var k V' -> Tau V C k
+substVar1 <> ()
+substVar1 (t ,, s) here = t
+substVar1 (t ,, s) (there v) = substVar1 s v
+
+-- by construction: substitution is kind preserving
+
+substTau1 : forall {V V' : VarCtx}{C : ConCtx}{k : Kind} -> Subst C V V' -> Tau V' C k -> Tau V C k
+substTau1 s (var v) = substVar1 s v
+substTau1 s (con c) = con c
+substTau1 s (app l r) = app (substTau1 s l) (substTau1 s r)
+
+-- weakening substitutions
+
+weakSubst : forall {k V V' C} -> Subst C V V' -> Subst C (k :: V) V'
+weakSubst <> = <>
+weakSubst (x ,, s) = (weakTau here x) ,, (weakSubst s)
+
+-- extending a substitution
+
+ext : forall {V V' C k} -> Subst C V V' -> Subst C (k :: V) (k :: V')
+ext s = var here ,, weakSubst s  
+
+substExt : forall {C V V' k}{s s' : Subst C V V'}{t t' : Tau V C k} -> s == s' -> t == t' ->  t ,, s == t' ,, s'
+substExt refl refl = refl
+
+-- identity substitution
+
+id : forall {V : VarCtx}{C : ConCtx} -> Subst C V V
+id {[]}{C}  = <>
+id {x :: V} = ext id
+
 -- composition
 
--- substTau : forall {V C k k'}(t : Tau V C k)(x : Var k' V)(u : Tau (V - x) C k') -> Tau (V - x) C k
+_o_ : forall {V V' V'' : VarCtx}{C : ConCtx} -> Subst C V V' -> Subst C V' V'' -> Subst C V V''
+s o <> = <>
+s o (t ,, s') = substTau1 s t ,, (s o s')
 
---_@_ : forall {V C k k'} -> (x : Var k' V) -> (u : Tau (V - x) C k') ->
+-- composition is equals to each substitution 
+
+o-substTau1 : forall {V V' V'' : VarCtx}{C : ConCtx}{k : Kind}(s : Subst C V V')(s' : Subst C V' V'')(t : Tau V'' C k) -> 
+              substTau1 (s o s') t == substTau1 s (substTau1 s' t)
+o-substTau1 s <> (var ())
+o-substTau1 s (x ,, s') (var here) = refl
+o-substTau1 s (x ,, s') (var (there v)) = o-substTau1 s s' (var v)
+o-substTau1 s s' (con c) = refl
+o-substTau1 s s' (app l r) = cong2 app (o-substTau1 s s' l) (o-substTau1 s s' r)
+
+-- composition is associative
+
+o-assoc : forall {V V' V'' V''' : VarCtx}{C : ConCtx}(s : Subst C V V')(s' : Subst C V' V'')(s'' : Subst C V'' V''') -> 
+                 s o (s' o s'') == (s o s') o s''
+o-assoc s s' <> = refl
+o-assoc s s' (t ,, s'') = substExt (o-assoc s s' s'') (sym (o-substTau1 s s' t))
+
 
 
 

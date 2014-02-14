@@ -12,9 +12,6 @@ postulate LMax  : Level -> Level -> Level
 {-# BUILTIN LEVELSUC  LSuc   #-}
 {-# BUILTIN LEVELMAX  LMax #-}
 
-id : forall {a}{A : Set a} -> A -> A
-id x = x
-
 -- natural numbers
 
 data Nat : Set where
@@ -107,6 +104,16 @@ sigmaInj : forall {a b}{A : Set a}{B : A -> Set b}{x x' : A}{y : B x}{y' : B x'}
                   (x ~=~ x') * (y ~=~ y')
 sigmaInj refl = hrefl , hrefl
 
+-- coproducts
+
+data _+_ {a b}(A : Set a)(B : Set b) : Set (LMax a b) where
+  inl : A -> A + B
+  inr : B -> A + B
+
++-func : forall {a b c}{A : Set a}{B : Set b}{C : Set c} -> (A -> C) -> (B -> C) -> A + B -> C
++-func f g (inl a) = f a
++-func f g (inr b) = g b
+
 -- negation
 
 data Empty : Set where
@@ -133,7 +140,7 @@ foldr f v (x :: xs) = f x (foldr f v xs)
 
 -- List membership
 
-infixl 4 _<-_
+infixl 3 _<-_
 
 data _<-_ {A : Set} : A -> List A -> Set where
   here  : forall {x xs}   -> x <- (x :: xs)
@@ -141,3 +148,23 @@ data _<-_ {A : Set} : A -> List A -> Set where
 
 thereInj : forall {A}{x y : A}{xs : List A}{p : x <- xs}{q : x <- xs} -> there {y = y} p == there {y = y} q -> p == q
 thereInj refl = refl
+
+<-inv : forall {A}{x y : A}{xs : List A} -> x <- (y :: xs) -> (x == y) + (x <- xs)
+<-inv here = inl refl
+<-inv (there prf) = inr prf
+
+-- decidability predicate
+
+Rel : Set -> Set1
+Rel A = A -> A -> Set
+
+data Dec {a} (A : Set a) : Set a where
+  yes : (p : A) -> Dec A
+  no  : (p : not A) -> Dec A
+
+<-Dec : forall {A : Set}(eq : forall (y z : A) -> Dec (y == z))(x : A)(xs : List A) -> Dec (x <- xs)
+<-Dec eq x [] = no (λ ())
+<-Dec eq x (y :: ys) with eq x y | <-Dec eq x ys 
+<-Dec eq .y (y :: ys) | yes refl | r' = yes here
+<-Dec eq x (y :: ys) | no p | yes p' = yes (there p')
+<-Dec eq x (y :: ys) | no p | no p' = no (\ ctr -> +-func p p' (<-inv ctr))
